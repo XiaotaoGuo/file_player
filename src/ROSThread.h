@@ -54,8 +54,6 @@
 #include <nav_msgs/Odometry.h>
 #include <geometry_msgs/Quaternion.h>
 #include <tf/transform_datatypes.h>
-#include <tf_conversions/tf_eigen.h>
-
 
 #include <dynamic_reconfigure/server.h>
 #include <file_player/dynamic_file_playerConfig.h>
