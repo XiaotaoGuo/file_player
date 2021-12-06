@@ -54,6 +54,7 @@
 #include <nav_msgs/Odometry.h>
 #include <geometry_msgs/Quaternion.h>
 #include <tf/transform_datatypes.h>
+#include <tf_conversions/tf_eigen.h>
 
 
 #include <dynamic_reconfigure/server.h>
@@ -160,6 +161,8 @@ private:
     ros::Publisher sick_back_pub_;
     ros::Publisher sick_middle_pub_;
 
+    ros::Publisher baseline_odom_pub_;  // baseline odom publisher
+
     ros::Publisher stereo_left_pub_;
     ros::Publisher stereo_right_pub_;
 
@@ -183,6 +186,8 @@ private:
     map<int64_t, sensor_msgs::Imu>         imu_data_;
     map<int64_t, sensor_msgs::MagneticField>         mag_data_;
 
+    map<int64_t, nav_msgs::Odometry>     baseline_odom_data_;
+
     DataThread<int64_t> data_stamp_thread_;
     DataThread<int64_t> altimter_thread_;
     DataThread<int64_t> encoder_thread_;
@@ -196,6 +201,8 @@ private:
     DataThread<int64_t> velodyne_right_thread_;
     DataThread<int64_t> sick_back_thread_;
     DataThread<int64_t> sick_middle_thread_;
+
+    DataThread<int64_t> baseline_odom_thread_;
 
     map<int64_t, int64_t> stop_period_; //start and stop stamp
 
@@ -212,6 +219,8 @@ private:
     void SickMiddleThread();
     void StereoThread();
     void OmniThread();
+
+    void BaselineThread();
 
     void FilePlayerStart(const std_msgs::BoolConstPtr& msg);
     void FilePlayerStop(const std_msgs::BoolConstPtr& msg);

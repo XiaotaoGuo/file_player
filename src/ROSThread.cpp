@@ -47,6 +47,7 @@ ROSThread::~ROSThread()
   sick_middle_thread_.active_ = false;
   stereo_thread_.active_ = false;
   omni_thread_.active_ = false;
+  baseline_odom_thread_.active_ = false;
   usleep(100000);
 
   data_stamp_thread_.cv_.notify_all();
@@ -87,6 +88,9 @@ ROSThread::~ROSThread()
 
   omni_thread_.cv_.notify_all();
   if(omni_thread_.thread_.joinable()) omni_thread_.thread_.join();
+
+  baseline_odom_thread_.cv_.notify_all();
+  if(baseline_odom_thread_.thread_.joinable()) baseline_odom_thread_.thread_.join();
 }
 
 void ROSThread::ros_initialize(ros::NodeHandle &n)
@@ -129,6 +133,8 @@ void ROSThread::ros_initialize(ros::NodeHandle &n)
 //  omni2_info_pub_ = nh_.advertise<sensor_msgs::CameraInfo>("/occam_node/image2/camera_info", 10);
 //  omni3_info_pub_ = nh_.advertise<sensor_msgs::CameraInfo>("/occam_node/image3/camera_info", 10);
 //  omni4_info_pub_ = nh_.advertise<sensor_msgs::CameraInfo>("/occam_node/image4/camera_info", 10);
+
+  baseline_odom_pub_ = nh_.advertise<nav_msgs::Odometry>("/baseline/odom", 1000);
 
   clock_pub_ = nh_.advertise<rosgraph_msgs::Clock>("/clock", 1);
 
@@ -184,6 +190,10 @@ void ROSThread::Ready()
   omni_thread_.cv_.notify_all();
   if(omni_thread_.thread_.joinable()) omni_thread_.thread_.join();
 
+  baseline_odom_thread_.active_ = false;
+  baseline_odom_thread_.cv_.notify_all();
+  if(baseline_odom_thread_.thread_.joinable()) baseline_odom_thread_.thread_.join();
+
 
   //check path is right or not
 
@@ -206,8 +216,22 @@ void ROSThread::Ready()
 //    data_stamp_[stamp] = data_name;
     data_stamp_.insert( multimap<int64_t, string>::value_type(stamp, data_name));
   }
-  cout << "Stamp data are loaded" << endl;
   fclose(fp);
+
+  fp = fopen((data_folder_path_+"/global_pose.csv").c_str(), "r");
+  double temp_data[12];
+  int baseline_count = 0;
+  while(fscanf(fp,"%ld,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf\n",&stamp,&temp_data[0],&temp_data[1],&temp_data[2],\
+                                                                                &temp_data[3],&temp_data[4],&temp_data[5],\
+                                                                                &temp_data[6],&temp_data[7],&temp_data[8],\
+                                                                                &temp_data[9],&temp_data[10],&temp_data[11]) == 13){
+//    data_stamp_[stamp] = data_name;
+    data_stamp_.insert( multimap<int64_t, string>::value_type(stamp, "baseline"));
+    baseline_count++;
+  }
+  fclose(fp);
+  cout << baseline_count << " baseline data loaded" << endl;
+  cout << "Stamp data are loaded" << endl;
 
   initial_data_stamp_ = data_stamp_.begin()->first - 1;
   last_data_stamp_ = prev(data_stamp_.end(),1)->first - 1;
@@ -375,6 +399,56 @@ void ROSThread::Ready()
 
 //  cout << stop_period_.size() << endl;
   cout << "Encoder data are loaded" << endl;
+  fclose(fp);
+
+  //Read baseline data
+  fp = fopen((data_folder_path_+"/global_pose.csv").c_str(),"r");
+  double baseline_mat[12];
+  nav_msgs::Odometry baseline_data;
+  baseline_odom_data_.clear();
+  Eigen::Vector3f init_pos = Eigen::Vector3f::Zero();
+  while(fscanf(fp,"%ld,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf\n",&stamp, &baseline_mat[0],&baseline_mat[1],&baseline_mat[2],\
+                                                                                  &baseline_mat[3],&baseline_mat[4],&baseline_mat[5],\
+                                                                                  &baseline_mat[6],&baseline_mat[7],&baseline_mat[8],\
+                                                                                  &baseline_mat[9],&baseline_mat[10],&baseline_mat[11]) == 13){
+    
+    Eigen::Matrix3d rot_eigen;
+    rot_eigen << baseline_mat[0], baseline_mat[1], baseline_mat[2],
+                 baseline_mat[4], baseline_mat[5], baseline_mat[6],
+                 baseline_mat[8], baseline_mat[9], baseline_mat[10];
+    Eigen::Quaterniond quat(rot_eigen);
+    quat.normalize();
+    geometry_msgs::Quaternion baseline_odom_quat;
+    baseline_odom_quat.w = quat.w();
+    baseline_odom_quat.x = quat.x();
+    baseline_odom_quat.y = quat.y();
+    baseline_odom_quat.z = quat.z();
+
+    baseline_data.header.stamp.fromNSec(stamp);
+    baseline_data.header.frame_id = "world";
+    baseline_data.child_frame_id = "baseline";
+    baseline_data.pose.pose.position.x = baseline_mat[3];
+    baseline_data.pose.pose.position.y = baseline_mat[7];
+    baseline_data.pose.pose.position.z = baseline_mat[11];
+    baseline_data.pose.pose.orientation = baseline_odom_quat;
+
+    if (init_pos.isZero())
+    {
+      init_pos.x() = baseline_data.pose.pose.position.x;
+      init_pos.y() = baseline_data.pose.pose.position.y;
+      init_pos.z() = baseline_data.pose.pose.position.z;
+    }
+    else
+    {
+      baseline_data.pose.pose.position.x -= init_pos.x();
+      baseline_data.pose.pose.position.y -= init_pos.y();
+      baseline_data.pose.pose.position.z -= init_pos.z();
+      baseline_odom_data_[stamp] = baseline_data;
+    }
+
+
+  }
+  cout << "Baseline data are loaded" << endl;
   fclose(fp);
 
   //Read fog data
@@ -839,6 +913,8 @@ void ROSThread::Ready()
   stereo_thread_.active_ = true;
   omni_thread_.active_ = true;
 
+  baseline_odom_thread_.active_ = true;
+
   data_stamp_thread_.thread_ = std::thread(&ROSThread::DataStampThread,this);
   altimter_thread_.thread_ = std::thread(&ROSThread::AltimeterThread,this);
   encoder_thread_.thread_ = std::thread(&ROSThread::EncoderThread,this);
@@ -852,6 +928,8 @@ void ROSThread::Ready()
   sick_middle_thread_.thread_ = std::thread(&ROSThread::SickMiddleThread,this);
   stereo_thread_.thread_ = std::thread(&ROSThread::StereoThread,this);
   omni_thread_.thread_ = std::thread(&ROSThread::OmniThread,this);
+
+  baseline_odom_thread_.thread_ = std::thread(&ROSThread::BaselineThread, this);
 
 }
 
@@ -940,6 +1018,10 @@ void ROSThread::DataStampThread()
     }else if(iter->second.compare("omni") == 0 && omni_active_ == true){
         omni_thread_.push(stamp);
         omni_thread_.cv_.notify_all();
+    }else if (iter->second.compare("baseline") == 0)
+    {
+      baseline_odom_thread_.push(stamp);
+      baseline_odom_thread_.cv_.notify_all();
     }
     stamp_show_count_++;
     if(stamp_show_count_ > 100){
@@ -1034,6 +1116,26 @@ void ROSThread::FogThread()
 
     }
     if(fog_thread_.active_ == false) return;
+  }
+}
+
+void ROSThread::BaselineThread()
+{
+  while(1){
+    std::unique_lock<std::mutex> ul(baseline_odom_thread_.mutex_);
+    baseline_odom_thread_.cv_.wait(ul);
+    if(baseline_odom_thread_.active_ == false) return;
+    ul.unlock();
+
+    while(!baseline_odom_thread_.data_queue_.empty()){
+      auto data = baseline_odom_thread_.pop();
+      //process
+      if(baseline_odom_data_.find(data) != baseline_odom_data_.end()){
+        baseline_odom_pub_.publish(baseline_odom_data_[data]);
+      }
+
+    }
+    if(baseline_odom_thread_.active_ == false) return;
   }
 }
 
