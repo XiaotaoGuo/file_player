@@ -406,7 +406,6 @@ void ROSThread::Ready()
   double baseline_mat[12];
   nav_msgs::Odometry baseline_data;
   baseline_odom_data_.clear();
-  Eigen::Vector3f init_pos = Eigen::Vector3f::Zero();
   while(fscanf(fp,"%ld,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf\n",&stamp, &baseline_mat[0],&baseline_mat[1],&baseline_mat[2],\
                                                                                   &baseline_mat[3],&baseline_mat[4],&baseline_mat[5],\
                                                                                   &baseline_mat[6],&baseline_mat[7],&baseline_mat[8],\
@@ -432,20 +431,7 @@ void ROSThread::Ready()
     baseline_data.pose.pose.position.z = baseline_mat[11];
     baseline_data.pose.pose.orientation = baseline_odom_quat;
 
-    if (init_pos.isZero())
-    {
-      init_pos.x() = baseline_data.pose.pose.position.x;
-      init_pos.y() = baseline_data.pose.pose.position.y;
-      init_pos.z() = baseline_data.pose.pose.position.z;
-    }
-    else
-    {
-      baseline_data.pose.pose.position.x -= init_pos.x();
-      baseline_data.pose.pose.position.y -= init_pos.y();
-      baseline_data.pose.pose.position.z -= init_pos.z();
-      baseline_odom_data_[stamp] = baseline_data;
-    }
-
+    baseline_odom_data_[stamp] = baseline_data;
 
   }
   cout << "Baseline data are loaded" << endl;
